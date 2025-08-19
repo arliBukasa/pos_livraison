@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Category for POS Livraison -->
+    <record id="module_category_pos_livraison" model="ir.module.category">
+        <field name="name">POS Livraison</field>
+        <field name="description">Gestion des livraisons du POS</field>
+        <field name="sequence">20</field>
+    </record>
+
+    <!-- Groups -->
+    <record id="group_pos_livraison_user" model="res.groups">
+        <field name="name">Utilisateur Livraison</field>
+        <field name="category_id" ref="pos_livraison.module_category_pos_livraison"/>
+    </record>
+
+    <record id="group_pos_livraison_manager" model="res.groups">
+        <field name="name">Manager Livraison</field>
+        <field name="category_id" ref="pos_livraison.module_category_pos_livraison"/>
+        <field name="implied_ids" eval="[(4, ref('pos_livraison.group_pos_livraison_user'))]"/>
+    </record>
+</odoo>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Séquences conservées -->
+    <record id="seq_pos_livraison_livraison" model="ir.sequence">
+        <field name="name">Livraisons Partielles</field>
+        <field name="code">pos.livraison.livraison</field>
+        <field name="prefix">LP-</field>
+        <field name="padding">5</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+    </record>
+
+    <record id="seq_pos_livraison_sortie" model="ir.sequence">
+        <field name="name">Sorties de Stock</field>
+        <field name="code">pos.livraison.sortie</field>
+        <field name="prefix">SOR-</field>
+        <field name="padding">5</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+    </record>
+
+    <!-- Paramètres de configuration -->
+    <record id="config_prix_sac_farine" model="ir.config_parameter">
+        <field name="key">pos_livraison.prix_sac</field>
+        <field name="value">222000</field>
+    </record>
+
+    <record id="config_poids_sac_farine" model="ir.config_parameter">
+        <field name="key">pos_livraison.poids_sac</field>
+        <field name="value">50</field>
+    </record>
+
+    <!-- Suppression des données de démo de l'ancien modèle pos.livraison.commande -->
+    <!-- Si besoin de démo future, créer des commandes via pos.caisse.commande dans un module de démo séparé. -->
+</odoo>

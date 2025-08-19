@@ -1,0 +1,253 @@
+<odoo>
+    <!-- Dashboard Kanban -->
+    <record id="view_pos_livraison_dashboard" model="ir.ui.view">
+        <field name="name">pos.livraison.dashboard</field>
+        <field name="model">pos.caisse.commande</field>
+        <field name="arch" type="xml">
+            <kanban create="false" default_group_by="etat_livraison">
+                <field name="etat_livraison"/>
+                <field name="montant_total"/>
+                <field name="montant_livre"/>
+                <field name="montant_restant"/>
+                <field name="sacs_farine_total"/>
+                <templates>
+                    <t t-name="kanban-box">
+                        <div class="oe_kanban_global_click o_kanban_record">
+                            <div class="o_kanban_primary_left">
+                                <strong><field name="name"/></strong>
+                                <div class="text-muted">Carte: <field name="client_card"/> - <field name="client_nom"/></div>
+                            </div>
+                            <div class="o_kanban_primary_right">
+                                <t t-set="s" t-value="record.etat_livraison.raw_value"/>
+                                <span t-if="s == 'en_queue'" class="badge badge-info">En attente</span>
+                                <span t-if="s == 'en_cours'" class="badge badge-warning">En cours</span>
+                                <span t-if="s == 'livree_partielle'" class="badge badge-primary">Partielle</span>
+                                <span t-if="s == 'livree'" class="badge badge-success">Complète</span>
+                            </div>
+                            <div class="o_kanban_secondary mt8">
+                                <div>Total: <field name="montant_total" widget="monetary"/></div>
+                                <div>Livré: <field name="montant_livre" widget="monetary"/> / Restant: <field name="montant_restant" widget="monetary"/></div>
+                                <div>Sacs: <field name="sacs_farine_total"/> - Prog: <field name="progression" widget="progressbar" options="{'max_value': 100}"/></div>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- Tree -->
+    <record id="view_pos_livraison_commande_tree" model="ir.ui.view">
+        <field name="name">pos.livraison.commande.tree</field>
+        <field name="model">pos.caisse.commande</field>
+        <field name="arch" type="xml">
+            <tree decoration-info="etat_livraison == 'en_queue'" decoration-warning="etat_livraison == 'en_cours'" decoration-primary="etat_livraison == 'livree_partielle'" decoration-success="etat_livraison == 'livree'">
+                <field name="name"/>
+                <field name="client_card"/>
+                <field name="client_nom"/>
+                <field name="montant_total" widget="monetary"/>
+                <field name="montant_livre" widget="monetary"/>
+                <field name="montant_restant" widget="monetary"/>
+                <field name="etat_livraison" widget="badge"/>
+                <field name="priority_livraison" widget="priority"/>
+                <field name="progression"/>
+                <field name="date"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Form -->
+    <record id="view_pos_livraison_commande_form" model="ir.ui.view">
+        <field name="name">pos.livraison.commande.form</field>
+        <field name="model">pos.caisse.commande</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <field name="etat_livraison" invisible="1"/>
+                    <button name="action_start_livraison" type="object" string="Démarrer livraison"  class="btn-primary"/>
+                    <button name="action_complete_livraison" type="object" string="Terminer livraison" attrs="{'invisible':[('etat_livraison','not in',('en_cours','livree_partielle'))]}" class="btn-success"/>
+                </header>
+                <sheet>
+                    <!-- boutons actions -->
+                    <div class="oe_button_box">
+                        <button name="action_start_livraison" type="object" string="Démarrer livraison"  class="btn-primary"/>
+                        <button name="action_complete_livraison" type="object" string="Terminer livraison"  class="btn-success"/>
+                    </div>
+
+                    <div class="oe_title"><h1><field name="name" readonly="1"/></h1></div>
+                    <group>
+                        <group string="Client">
+                            <field name="client_card"/>
+                            <field name="client_nom"/>
+                        </group>
+                        <group string="Livraison">
+                            <field name="priority_livraison" widget="priority"/>
+                            <field name="mode_livraison"/>
+                            <field name="date"/>
+                            <field name="date_livraison_prevue"/>
+                            <field name="date_livraison_complete" attrs="{'invisible':[('etat_livraison','!=','livree')]}"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Montants">
+                            <field name="montant_total" widget="monetary"/>
+                            <field name="montant_livre" widget="monetary"/>
+                            <field name="montant_restant" widget="monetary"/>
+                            <field name="progression" widget="progressbar" options="{'max_value':100}"/>
+                        </group>
+                        <group string="Farine">
+                            <field name="sacs_farine_total"/>
+                            <field name="poids_farine_kg"/>
+                        </group>
+                    </group>
+                    <field name="notes_livraison" placeholder="Notes..."/>
+                    <notebook>
+                        <page string="Livraisons">
+                            <field name="livraison_ids">
+                                <tree editable="bottom">
+                                    <field name="name" readonly="1"/>
+                                    <field name="date"/>
+                                    <field name="montant_livre" widget="monetary"/>
+                                    <field name="type_paiement"/>
+                                    <field name="sacs_farine"/>
+                                    <field name="livreur"/>
+                                    <field name="notes"/>
+                                </tree>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Extend the base POS commande form to show delivery buttons in the standard view -->
+<!--     <record id="view_pos_livraison_extend_pos_caisse_commande_form" model="ir.ui.view">
+        <field name="name">pos.livraison.extend.pos.caisse.commande.form</field>
+        <field name="model">pos.caisse.commande</field>
+        <field name="inherit_id" ref="pos_caisse.view_pos_caisse_commande_form"/>
+        <field name="arch" type="xml">
+            <header position="inside">
+                <field name="etat_livraison" invisible="1"/>
+                <field name="montant_restant" invisible="1"/>
+                    <button name="action_start_livraison" type="object" string="Démarrer livraison" attrs="{'invisible':[('etat_livraison','in',('en_cours','livree_partielle','livree','annulee'))]}" class="btn-primary"/>
+                <button name="action_complete_livraison" type="object" string="Terminer livraison" attrs="{'invisible':[('etat_livraison','not in',('en_cours','livree_partielle'))]}" class="btn-success"/>
+                <button name="action_open_quick_livraison" type="object" string="Livrer" class="btn-primary" attrs="{'invisible':['|',('etat_livraison','=','livree'),('etat_livraison','=','annulee')]}"/>
+                <button name="action_quick_full_deliver" type="object" string="Livrer Tout" class="btn-secondary" attrs="{'invisible':['|',('etat_livraison','in',('livree','annulee')),('montant_restant','&lt;=',0)]}"/>
+            </header>
+            <notebook position="inside">
+                <page string="Livraisons">
+                    <field name="livraison_ids">
+                        <tree editable="bottom">
+                            <field name="name" readonly="1"/>
+                            <field name="date"/>
+                            <field name="montant_livre" widget="monetary"/>
+                            <field name="type_paiement"/>
+                            <field name="sacs_farine"/>
+                            <field name="livreur"/>
+                            <field name="notes"/>
+                        </tree>
+                    </field>
+                </page>
+            </notebook>
+        </field>
+    </record> -->
+
+    <!-- Livraison partial views -->
+    <record id="view_pos_livraison_livraison_tree" model="ir.ui.view">
+        <field name="name">pos.livraison.livraison.tree</field>
+        <field name="model">pos.livraison.livraison</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="commande_id"/>
+                <field name="date"/>
+                <field name="montant_livre" widget="monetary"/>
+                <field name="type_paiement"/>
+                <field name="sacs_farine"/>
+                <field name="livreur"/>
+            </tree>
+        </field>
+    </record>
+    <record id="view_pos_livraison_livraison_form" model="ir.ui.view">
+        <field name="name">pos.livraison.livraison.form</field>
+        <field name="model">pos.livraison.livraison</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="commande_id"/>
+                            <field name="date"/>
+                            <field name="livreur"/>
+                        </group>
+                        <group>
+                            <field name="montant_livre" widget="monetary"/>
+                            <field name="type_paiement"/>
+                            <field name="sacs_farine"/>
+                            <field name="prix_sac" widget="monetary"/>
+                        </group>
+                    </group>
+                    <field name="notes" placeholder="Notes..."/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_pos_livraison_livraison_form_inherit" model="ir.ui.view">
+        <field name="name">pos.livraison.livraison.form.inherit.domain</field>
+        <field name="model">pos.livraison.livraison</field>
+        <field name="inherit_id" ref="pos_livraison.view_pos_livraison_livraison_form"/>
+        <field name="arch" type="xml">
+            <field name="commande_id" position="attributes">
+                <attribute name="domain">[('etat_livraison','in',['en_cours','livree_partielle','en_queue'])]</attribute>
+            </field>
+        </field>
+    </record>
+
+    <!-- Sortie de stock views (base) -->
+    <record id="view_pos_livraison_sortie_tree" model="ir.ui.view">
+        <field name="name">pos.livraison.sortie.stock.tree</field>
+        <field name="model">pos.livraison.sortie.stock</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="date"/>
+                <field name="motif"/>
+                <field name="type"/>
+                <field name="quantite_sacs"/>
+                <field name="quantite_kg"/>
+                <field name="responsable"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_pos_livraison_sortie_form" model="ir.ui.view">
+        <field name="name">pos.livraison.sortie.stock.form</field>
+        <field name="model">pos.livraison.sortie.stock</field>
+        <field name="arch" type="xml">
+            <form>
+                <header/>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name" readonly="1"/>
+                            <field name="date"/>
+                            <field name="type"/>
+                        </group>
+                        <group>
+                            <field name="motif"/>
+                            <field name="quantite_sacs"/>
+                            <field name="quantite_kg" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="responsable"/>
+                        <field name="notes"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search view temporarily removed to fix upgrade error -->
+</odoo>

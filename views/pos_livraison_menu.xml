@@ -1,0 +1,60 @@
+<odoo>
+    <!-- Actions mises à jour -->
+    <record id="action_pos_livraison_dashboard" model="ir.actions.act_window">
+        <field name="name">Dashboard Livraisons</field>
+        <field name="res_model">pos.caisse.commande</field>
+        <field name="view_mode">kanban,tree,form</field>
+        <field name="view_id" ref="view_pos_livraison_dashboard"/>
+        <field name="domain">[('etat_livraison','in',['en_queue','en_cours','livree_partielle'])]</field>
+    </record>
+
+    <record id="action_pos_livraison_commande" model="ir.actions.act_window">
+        <field name="name">Commandes (Livraison)</field>
+        <field name="res_model">pos.caisse.commande</field>
+        <field name="view_mode">tree,form,kanban</field>
+        <field name="domain">[('etat_livraison','in',['en_queue','en_cours','livree_partielle','livree'])]</field>
+        <!-- reference to the specific view by context -->
+        <field name="context">{'form_view_id': 'view_pos_livraison_commande_form'}</field>
+    </record>
+
+    <record id="action_pos_livraison_queue" model="ir.actions.act_window">
+        <field name="name">File d'attente</field>
+        <field name="res_model">pos.caisse.commande</field>
+        <field name="view_mode">tree,form</field>
+        <field name="domain">[('etat_livraison','=','en_queue')]</field>
+        <field name="context">{'default_etat_livraison':'en_queue'}</field>
+    </record>
+
+    <record id="action_pos_livraison_livraison" model="ir.actions.act_window">
+        <field name="name">Livraisons partielles</field>
+        <field name="res_model">pos.livraison.livraison</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <record id="action_pos_livraison_sortie_stock" model="ir.actions.act_window">
+        <field name="name">Sorties de stock</field>
+        <field name="res_model">pos.livraison.sortie.stock</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <record id="action_nouvelle_sortie_stock" model="ir.actions.act_window">
+        <field name="name">Nouvelle sortie de stock</field>
+        <field name="res_model">pos.livraison.sortie.stock</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menu principal -->
+    <menuitem id="menu_pos_livraison_root" name="🚚 POS Livraison" sequence="20" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+
+    <menuitem id="menu_pos_livraison_dashboard" name="📊 Dashboard" parent="menu_pos_livraison_root" action="action_pos_livraison_dashboard" sequence="1" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+
+    <menuitem id="menu_pos_livraison_commandes" name="📦 Commandes" parent="menu_pos_livraison_root" sequence="10" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+    <menuitem id="menu_pos_livraison_commande" name="Toutes (Livraison)" parent="menu_pos_livraison_commandes" action="action_pos_livraison_commande" sequence="1" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+    <menuitem id="menu_pos_livraison_queue" name="File d'attente" parent="menu_pos_livraison_commandes" action="action_pos_livraison_queue" sequence="2" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+
+    <menuitem id="menu_pos_livraison_operations" name="🔧 Opérations" parent="menu_pos_livraison_root" sequence="20" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+    <menuitem id="menu_pos_livraison_livraison" name="Livraisons partielles" parent="menu_pos_livraison_operations" action="action_pos_livraison_livraison" sequence="1" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+    <menuitem id="menu_pos_livraison_sortie_stock" name="Sorties de stock" parent="menu_pos_livraison_operations" action="action_pos_livraison_sortie_stock" sequence="2" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+    <menuitem id="menu_nouvelle_sortie_stock" name="➕ Nouvelle sortie" parent="menu_pos_livraison_operations" action="action_nouvelle_sortie_stock" sequence="3" groups="pos_livraison.group_pos_livraison_user,pos_livraison.group_pos_livraison_manager"/>
+</odoo>

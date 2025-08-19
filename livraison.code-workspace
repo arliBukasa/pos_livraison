@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "../livraison"
+		},
+		{
+			"path": "."
+		},
+		{
+			"path": "../pos_paie"
+		},
+		{
+			"path": "../pos_admin"
+		},
+		{
+			"path": "../../../../../Users/arnol/Documents/ProjetsAndroid/pos_mobile_sumni"
+		},
+		{
+			"path": "../pos_caisse"
+		}
+	],
+	"settings": {
+		"python.languageServer": "None"
+	}
+}
