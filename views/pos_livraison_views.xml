@@ -57,7 +57,7 @@
     </record>
 
     <!-- Form -->
-    <record id="view_pos_livraison_commande_form" model="ir.ui.view">
+<!--     <record id="view_pos_livraison_commande_form" model="ir.ui.view">
         <field name="name">pos.livraison.commande.form</field>
         <field name="model">pos.caisse.commande</field>
         <field name="arch" type="xml">
@@ -68,7 +68,7 @@
                     <button name="action_complete_livraison" type="object" string="Terminer livraison" attrs="{'invisible':[('etat_livraison','not in',('en_cours','livree_partielle'))]}" class="btn-success"/>
                 </header>
                 <sheet>
-                    <!-- boutons actions -->
+                    
                     <div class="oe_button_box">
                         <button name="action_start_livraison" type="object" string="Démarrer livraison"  class="btn-primary"/>
                         <button name="action_complete_livraison" type="object" string="Terminer livraison"  class="btn-success"/>
@@ -118,38 +118,6 @@
                     </notebook>
                 </sheet>
             </form>
-        </field>
-    </record>
-
-    <!-- Extend the base POS commande form to show delivery buttons in the standard view -->
-<!--     <record id="view_pos_livraison_extend_pos_caisse_commande_form" model="ir.ui.view">
-        <field name="name">pos.livraison.extend.pos.caisse.commande.form</field>
-        <field name="model">pos.caisse.commande</field>
-        <field name="inherit_id" ref="pos_caisse.view_pos_caisse_commande_form"/>
-        <field name="arch" type="xml">
-            <header position="inside">
-                <field name="etat_livraison" invisible="1"/>
-                <field name="montant_restant" invisible="1"/>
-                    <button name="action_start_livraison" type="object" string="Démarrer livraison" attrs="{'invisible':[('etat_livraison','in',('en_cours','livree_partielle','livree','annulee'))]}" class="btn-primary"/>
-                <button name="action_complete_livraison" type="object" string="Terminer livraison" attrs="{'invisible':[('etat_livraison','not in',('en_cours','livree_partielle'))]}" class="btn-success"/>
-                <button name="action_open_quick_livraison" type="object" string="Livrer" class="btn-primary" attrs="{'invisible':['|',('etat_livraison','=','livree'),('etat_livraison','=','annulee')]}"/>
-                <button name="action_quick_full_deliver" type="object" string="Livrer Tout" class="btn-secondary" attrs="{'invisible':['|',('etat_livraison','in',('livree','annulee')),('montant_restant','&lt;=',0)]}"/>
-            </header>
-            <notebook position="inside">
-                <page string="Livraisons">
-                    <field name="livraison_ids">
-                        <tree editable="bottom">
-                            <field name="name" readonly="1"/>
-                            <field name="date"/>
-                            <field name="montant_livre" widget="monetary"/>
-                            <field name="type_paiement"/>
-                            <field name="sacs_farine"/>
-                            <field name="livreur"/>
-                            <field name="notes"/>
-                        </tree>
-                    </field>
-                </page>
-            </notebook>
         </field>
     </record> -->
 
@@ -250,4 +218,89 @@
     </record>
 
     <!-- Search view temporarily removed to fix upgrade error -->
+    
+    <!-- Sessions de livraison -->
+    <record id="view_pos_livraison_session_tree" model="ir.ui.view">
+        <field name="name">pos.livraison.session.tree</field>
+        <field name="model">pos.livraison.session</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name"/>
+                <field name="date"/>
+                <field name="user_id"/>
+                <field name="state"/>
+                <field name="total_livraisons"/>
+                <field name="montant_livre_total"/>
+                <field name="sacs_livres_total"/>
+                <field name="sorties_sacs_total"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_pos_livraison_session_form" model="ir.ui.view">
+        <field name="name">pos.livraison.session.form</field>
+        <field name="model">pos.livraison.session</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_open_session" type="object" string="Ouvrir" class="btn-primary" states="ferme"/>
+                    <button name="action_close_session" type="object" string="Fermer" class="btn-secondary" states="ouvert"/>
+                    <field name="state" widget="statusbar" statusbar_visible="ouvert,ferme"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="user_id"/>
+                        </group>
+                        <group>
+                            <field name="date"/>
+                            <field name="date_cloture"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Livraisons">
+                            <field name="livraison_ids">
+                                <tree>
+                                    <field name="name"/>
+                                    <field name="commande_id"/>
+                                    <field name="date"/>
+                                    <field name="montant_livre"/>
+                                    <field name="type_paiement"/>
+                                    <field name="sacs_farine"/>
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Sorties de stock">
+                            <field name="sortie_ids">
+                                <tree>
+                                    <field name="name"/>
+                                    <field name="date"/>
+                                    <field name="type"/>
+                                    <field name="motif"/>
+                                    <field name="quantite_sacs"/>
+                                    <field name="quantite_kg"/>
+                                </tree>
+                            </field>
+                        </page>
+                        <page string="Statistiques">
+                            <group>
+                                <field name="total_livraisons"/>
+                                <field name="montant_livre_total"/>
+                                <field name="sacs_livres_total"/>
+                                <field name="sorties_sacs_total"/>
+                                <field name="sorties_kg_total"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_pos_livraison_session" model="ir.actions.act_window">
+        <field name="name">Sessions de livraison</field>
+        <field name="res_model">pos.livraison.session</field>
+        <field name="view_mode">tree,form</field>
+    </record>
 </odoo>

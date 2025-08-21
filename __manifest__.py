@@ -15,12 +15,13 @@ Module POS Livraison Sumni v2
     'website': 'https://sumni.tech',
     'category': 'Point of Sale',
     'depends': ['base', 'web', 'bus', 'pos_caisse'],
-    'data': [
-        'security/pos_livraison_security.xml',
-        'security/ir.model.access.csv',
-        'data/pos_livraison_data.xml',
-        'views/pos_livraison_views.xml',
-        'views/pos_livraison_menu.xml',
+    "data": [
+        "data/pos_livraison_data.xml",
+        "security/ir.model.access.csv",
+        "security/pos_livraison_security.xml",
+        "views/pos_caisse_commande_views.xml",
+        "views/pos_livraison_menu.xml",
+    "views/pos_livraison_views.xml"
     ],
     'assets': {
         'web.assets_backend': [],

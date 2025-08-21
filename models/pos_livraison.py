@@ -233,6 +233,8 @@ class LivraisonLivraison(models.Model):
 
     name = fields.Char('Référence', required=True, copy=False, readonly=True, default='Nouveau')
     commande_id = fields.Many2one('pos.caisse.commande', string='Commande', required=True, ondelete='cascade', index=True)
+    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=True, index=True,
+                                 default=lambda self: self.env['pos.livraison.session']._get_open_for_user(self.env.uid))
     date = fields.Datetime('Date livraison', default=fields.Datetime.now, required=True, index=True)
     montant_livre = fields.Float('Montant livré', required=True)
     prix_sac = fields.Float('Prix par sac', compute='_compute_prix_sac', store=True)
@@ -245,6 +247,10 @@ class LivraisonLivraison(models.Model):
     def create(self, vals):
         if vals.get('name', 'Nouveau') == 'Nouveau':
             vals['name'] = self.env['ir.sequence'].next_by_code('pos.livraison.livraison') or 'Nouveau'
+        # Ensure session if not provided
+        if not vals.get('session_id'):
+            sid = self.env['pos.livraison.session']._ensure_open_for_user(self.env.uid)
+            vals['session_id'] = sid
         commande = None
         if vals.get('commande_id'):
             commande = self.env['pos.caisse.commande'].browse(vals['commande_id'])
@@ -278,6 +284,11 @@ class LivraisonLivraison(models.Model):
             rec.sacs_farine = rec.prix_sac > 0 and rec.montant_livre / rec.prix_sac or 0
 
     def write(self, vals):
+        # Validate session state if changed
+        if 'session_id' in vals and vals['session_id']:
+            sess = self.env['pos.livraison.session'].browse(vals['session_id'])
+            if sess and sess.state == 'ferme':
+                raise exceptions.UserError("Impossible d'attacher une livraison à une session fermée.")
         res = super().write(vals)
         for rec in self:
             if rec.commande_id:
@@ -300,6 +311,8 @@ class LivraisonSortieStock(models.Model):
     _order = 'date desc'
 
     name = fields.Char('Référence', required=True, copy=False, readonly=True, default='Nouveau')
+    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=True, index=True,
+                                 default=lambda self: self.env['pos.livraison.session']._get_open_for_user(self.env.uid))
     date = fields.Datetime('Date', default=fields.Datetime.now, required=True, index=True)
     motif = fields.Char('Motif', required=True)
     quantite_sacs = fields.Float('Quantité (sacs)', required=True)
@@ -314,6 +327,9 @@ class LivraisonSortieStock(models.Model):
     def create(self, vals):
         if vals.get('name', 'Nouveau') == 'Nouveau':
             vals['name'] = self.env['ir.sequence'].next_by_code('pos.livraison.sortie') or 'Nouveau'
+        if not vals.get('session_id'):
+            sid = self.env['pos.livraison.session']._ensure_open_for_user(self.env.uid)
+            vals['session_id'] = sid
         return super().create(vals)
 
     @api.depends('quantite_sacs')
@@ -330,3 +346,66 @@ class LivraisonQueue(models.Model):
     position = fields.Integer('Position dans la file')
     temps_attente_estime = fields.Float('Temps d\'attente estimé (heures)')
     date_entree_queue = fields.Datetime('Entrée en file', default=fields.Datetime.now, index=True)
+
+
+class LivraisonSession(models.Model):
+    _name = 'pos.livraison.session'
+    _description = 'Session de livraison'
+    _order = 'date desc'
+
+    name = fields.Char('Nom de la session', required=True, default=lambda self: self._get_default_session_name())
+    date = fields.Datetime('Date', default=fields.Datetime.now, required=True)
+    date_cloture = fields.Datetime('Date de clôture')
+    user_id = fields.Many2one('res.users', string='Livreur', required=True, default=lambda self: self.env.user)
+    state = fields.Selection([
+        ('ouvert', 'Ouverte'),
+        ('ferme', 'Clôturée')
+    ], default='ouvert', string='État', required=True, index=True)
+
+    livraison_ids = fields.One2many('pos.livraison.livraison', 'session_id', string='Livraisons')
+    sortie_ids = fields.One2many('pos.livraison.sortie.stock', 'session_id', string='Sorties de stock')
+
+    total_livraisons = fields.Integer('Nombre de livraisons', compute='_compute_stats', store=True)
+    montant_livre_total = fields.Float('Montant livré total', compute='_compute_stats', store=True)
+    sacs_livres_total = fields.Float('Sacs livrés (total)', compute='_compute_stats', store=True)
+    sorties_sacs_total = fields.Float('Sacs sortis', compute='_compute_stats', store=True)
+    sorties_kg_total = fields.Float('Kg sortis', compute='_compute_stats', store=True)
+
+    def _get_default_session_name(self):
+        return f"Livraison-{fields.Datetime.now().strftime('%Y-%m-%d')}"
+
+    @api.model
+    def _get_open_for_user(self, uid):
+        sess = self.sudo().search([('user_id', '=', uid), ('state', '=', 'ouvert')], order='date desc', limit=1)
+        return sess.id if sess else False
+
+    @api.model
+    def _ensure_open_for_user(self, uid):
+        """Return open session id for user, creating one if necessary."""
+        sid = self._get_open_for_user(uid)
+        if sid:
+            return sid
+        sess = self.sudo().create({'user_id': uid, 'state': 'ouvert'})
+        return sess.id
+
+    @api.depends('livraison_ids', 'livraison_ids.montant_livre', 'livraison_ids.sacs_farine',
+                 'sortie_ids', 'sortie_ids.quantite_sacs', 'sortie_ids.quantite_kg')
+    def _compute_stats(self):
+        for s in self:
+            s.total_livraisons = len(s.livraison_ids)
+            s.montant_livre_total = sum(s.livraison_ids.mapped('montant_livre'))
+            s.sacs_livres_total = sum(s.livraison_ids.mapped('sacs_farine'))
+            s.sorties_sacs_total = sum(s.sortie_ids.mapped('quantite_sacs'))
+            s.sorties_kg_total = sum(s.sortie_ids.mapped('quantite_kg'))
+
+    def action_open_session(self):
+        self.ensure_one()
+        self.state = 'ouvert'
+        self.date_cloture = False
+        return True
+
+    def action_close_session(self):
+        self.ensure_one()
+        self.state = 'ferme'
+        self.date_cloture = fields.Datetime.now()
+        return True

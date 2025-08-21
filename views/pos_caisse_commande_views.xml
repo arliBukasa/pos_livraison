@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    
+    <!-- View pos.caisse.commande form -->
+    <record id="view_pos_caisse_commande_form" model="ir.ui.view">
+        <field name="name">view.pos.caisse.commande.form</field>
+        <field name="model">pos.caisse.commande</field>
+        <field name="inherit_id" ref="pos_caisse.view_pos_caisse_commande_form"/>
+        <field name="arch" type="xml">
+            <!-- Boutons d'actions Livraison dans l'entête -->
+            <xpath expr="//form/header" position="inside">
+                <button name="action_start_livraison" type="object" string="Démarrer livraison" class="btn-primary"
+                        attrs="{'invisible': [('etat_livraison','not in', ['en_queue'])]}"/>
+                <button name="action_open_quick_livraison" type="object" string="Livraison rapide" class="btn-secondary"
+                        attrs="{'invisible': [('etat_livraison','in', ['livree','annulee'])]}"/>
+                <button name="action_quick_full_deliver" type="object" string="Livrer tout" class="btn-secondary"
+                        attrs="{'invisible': [('etat_livraison','in', ['livree','annulee'])]}"/>
+                <button name="action_complete_livraison" type="object" string="Terminer livraison" class="btn-success"
+                        attrs="{'invisible': [('etat_livraison','not in', ['en_cours','livree_partielle'])]}"/>
+            </xpath>
+
+            <!-- Regroupement des champs Livraison et Synthèse -->
+            <xpath expr="//sheet/group[1]" position="after">
+                <group>
+                    <group string="Livraison">
+                        <field name="etat_livraison"/>
+                        <field name="priority_livraison"/>
+                        <field name="mode_livraison"/>
+                        <field name="date_livraison_prevue"/>
+                        <field name="date_livraison_complete" readonly="1"/>
+                        <field name="notes_livraison"/>
+                    </group>
+                    <group string="Synthèse livraison">
+                        <field name="montant_total" readonly="1"/>
+                        <field name="montant_livre" readonly="1"/>
+                        <field name="montant_restant" readonly="1"/>
+                        <field name="progression" widget="progressbar" options="{'max_value': 100}" readonly="1"/>
+                        <field name="sacs_farine_total" readonly="1"/>
+                        <field name="poids_farine_kg" readonly="1"/>
+                        <field name="montant_livre_cash" readonly="1"/>
+                        <field name="montant_livre_bp" readonly="1"/>
+                        <field name="montant_bp" readonly="1"/>
+                    </group>
+                </group>
+            </xpath>
+
+            <!-- Nouvelle page Livraisons après la page des commandes -->
+            <xpath expr="//notebook/page[field[@name='line_ids']]" position="after">
+                <page string="Livraisons">
+                    <field name="livraison_ids" nolabel="1">
+                        <tree editable="bottom">
+                            <field name="date"/>
+                            <field name="montant_livre"/>
+                            <field name="type_paiement"/>
+                            <field name="sacs_farine"/>
+                            <field name="notes"/>
+                        </tree>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
