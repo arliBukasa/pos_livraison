@@ -233,8 +233,7 @@ class LivraisonLivraison(models.Model):
 
     name = fields.Char('Référence', required=True, copy=False, readonly=True, default='Nouveau')
     commande_id = fields.Many2one('pos.caisse.commande', string='Commande', required=True, ondelete='cascade', index=True)
-    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=True, index=True,
-                                 default=lambda self: self.env['pos.livraison.session']._get_open_for_user(self.env.uid))
+    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=False, index=True)
     date = fields.Datetime('Date livraison', default=fields.Datetime.now, required=True, index=True)
     montant_livre = fields.Float('Montant livré', required=True)
     prix_sac = fields.Float('Prix par sac', compute='_compute_prix_sac', store=True)
@@ -242,6 +241,9 @@ class LivraisonLivraison(models.Model):
     livreur = fields.Char('Livreur')
     notes = fields.Text('Notes de livraison')
     sacs_farine = fields.Float('Sacs de farine', compute='_compute_sacs_farine', store=True)
+    # Aliases explicitly requested by mobile client
+    livraison_session_id = fields.Many2one('pos.livraison.session', string='Session livraison (alias)', related='session_id', store=True, index=True)
+    livreur_id = fields.Many2one('res.users', string='Livreur (utilisateur)', index=True)
 
     @api.model
     def create(self, vals):
@@ -249,8 +251,16 @@ class LivraisonLivraison(models.Model):
             vals['name'] = self.env['ir.sequence'].next_by_code('pos.livraison.livraison') or 'Nouveau'
         # Ensure session if not provided
         if not vals.get('session_id'):
-            sid = self.env['pos.livraison.session']._ensure_open_for_user(self.env.uid)
+            # Accept alias from client or ensure current open
+            sid = vals.get('livraison_session_id') or self.env['pos.livraison.session']._ensure_open_for_user(self.env.uid)
             vals['session_id'] = sid
+        # Default livreur_id from session or current user if not provided
+        if not vals.get('livreur_id'):
+            try:
+                sess = self.env['pos.livraison.session'].browse(vals.get('session_id'))
+                vals['livreur_id'] = (sess.user_id.id if sess and sess.exists() else self.env.uid)
+            except Exception:
+                vals['livreur_id'] = self.env.uid
         commande = None
         if vals.get('commande_id'):
             commande = self.env['pos.caisse.commande'].browse(vals['commande_id'])
@@ -311,8 +321,7 @@ class LivraisonSortieStock(models.Model):
     _order = 'date desc'
 
     name = fields.Char('Référence', required=True, copy=False, readonly=True, default='Nouveau')
-    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=True, index=True,
-                                 default=lambda self: self.env['pos.livraison.session']._get_open_for_user(self.env.uid))
+    session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=False, index=True)
     date = fields.Datetime('Date', default=fields.Datetime.now, required=True, index=True)
     motif = fields.Char('Motif', required=True)
     quantite_sacs = fields.Float('Quantité (sacs)', required=True)

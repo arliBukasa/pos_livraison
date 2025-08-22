@@ -4,6 +4,35 @@ from odoo import http, fields
 from odoo.http import request
 
 class PosLivraisonController(http.Controller):
+    # ==== Helpers: session & payloads ====
+    def _get_open_session_id_for_user(self, uid=None):
+        uid = uid or request.env.user.id
+        return request.env['pos.livraison.session']._get_open_for_user(uid)
+
+    def _ensure_open_session_for_user(self, uid=None):
+        uid = uid or request.env.user.id
+        return request.env['pos.livraison.session']._ensure_open_for_user(uid)
+
+    def _session_to_payload(self, s):
+        if not s:
+            return None
+        return {
+            'id': s.id,
+            'name': s.name,
+            'date': s.date and s.date.isoformat() or None,
+            'date_cloture': s.date_cloture and s.date_cloture.isoformat() or None,
+            'user_id': s.user_id.id,
+            'user_name': s.user_id.name,
+            'state': s.state,
+            'stats': {
+                'total_livraisons': s.total_livraisons,
+                'montant_livre_total': s.montant_livre_total,
+                'sacs_livres_total': s.sacs_livres_total,
+                'sorties_sacs_total': s.sorties_sacs_total,
+                'sorties_kg_total': s.sorties_kg_total,
+            }
+        }
+
     def _compute_user_role_payload(self):
         user = request.env.user
         g = lambda xmlid: user.has_group(xmlid)
@@ -70,8 +99,52 @@ class PosLivraisonController(http.Controller):
             headers=[('Content-Type', 'application/json')]
         )
 
+    # ==== Livraison sessions API ====
+    @http.route('/api/livraison/session/status', type='json', auth='user', methods=['GET', 'POST'])
+    def session_status(self):
+        sid = self._get_open_session_id_for_user()
+        session = sid and request.env['pos.livraison.session'].browse(sid) or False
+        return {
+            'status': 'success',
+            'data': {
+                'has_open': bool(sid),
+                'session': self._session_to_payload(session) if session else None,
+            }
+        }
+
+    # Explicit JSON-only variant to avoid method/content-type confusion
+    @http.route('/api/livraison/session/status/json', type='json', auth='user', methods=['POST'])
+    def session_status_json(self):
+        return self.session_status()
+
+    # HTTP variant for manual checks in browser
+    @http.route('/api/livraison/session/status/http', type='http', auth='user', methods=['GET'], csrf=False)
+    def session_status_http(self):
+        payload = self.session_status()
+        return request.make_response(json.dumps(payload), headers=[('Content-Type', 'application/json')])
+
+    @http.route('/api/livraison/session/open', type='json', auth='user', methods=['POST'])
+    def session_open(self):
+        sid = self._get_open_session_id_for_user()
+        if not sid:
+            sid = self._ensure_open_session_for_user()
+        session = request.env['pos.livraison.session'].browse(sid)
+        return {'status': 'success', 'data': self._session_to_payload(session)}
+
+    @http.route('/api/livraison/session/close', type='json', auth='user', methods=['POST'])
+    def session_close(self):
+        sid = self._get_open_session_id_for_user()
+        if not sid:
+            return {'status': 'error', 'code': 'no_open_session', 'message': "Aucune session ouverte"}
+        session = request.env['pos.livraison.session'].browse(sid)
+        if session.user_id.id != request.env.user.id and not request.env.user.has_group('base.group_system'):
+            return {'status': 'error', 'code': 'forbidden', 'message': "Vous ne pouvez pas fermer la session d'un autre utilisateur"}
+        session.action_close_session()
+        return {'status': 'success', 'data': self._session_to_payload(session)}
+
     @http.route('/api/livraison/commandes', type='json', auth='user', methods=['POST'])
     def get_commandes(self, **params):
+        logging.info("=========== les paramettres dans /api/livraison/commandes: %s", params)
         domain = []
         etat = params.get('etat') or params.get('etat_livraison')
         if etat:
@@ -101,11 +174,87 @@ class PosLivraisonController(http.Controller):
         total_count = request.env['pos.caisse.commande'].search_count(domain)
         return {'status': 'success', 'data': data, 'total': total_count, 'offset': offset, 'returned': len(data)}
 
+    @http.route('/api/livraison/livraisons', type='json', auth='user', methods=['POST'])
+    def list_livraisons(self, **params):
+        """List delivery records constrained by session by default.
+        Params:
+          - session_mode: 'current' (default) | 'session_id' | 'none'
+          - session_id: required if session_mode == 'session_id'
+          - commande_id: filter by a given order
+          - date_from/date_to (ISO8601) optional
+          - search: ilike on name or livreur
+          - offset, limit, order
+        """
+        logging.info("=========== les paramettres dans /api/livraison/livraisons: %s", params)
+        env = request.env
+        domain = []
+        session_mode = params.get('session_mode', 'current')
+        if session_mode == 'current':
+            sid = self._get_open_session_id_for_user()
+            if not sid:
+                return {'status': 'error', 'code': 'no_open_session', 'message': "Aucune session de livraison ouverte"}
+            domain.append(('session_id', '=', sid))
+        elif session_mode == 'session_id':
+            sid = int(params.get('session_id') or 0)
+            if not sid:
+                return {'status': 'error', 'message': 'session_id requis'}
+            sess = env['pos.livraison.session'].browse(sid)
+            if not sess.exists():
+                return {'status': 'error', 'message': 'Session inconnue'}
+            # Restrict to own session unless admin
+            if sess.user_id.id != env.user.id and not env.user.has_group('base.group_system'):
+                return {'status': 'error', 'code': 'forbidden', 'message': "Accès refusé à la session demandée"}
+            domain.append(('session_id', '=', sid))
+        # else 'none' => no session filter (use cautiously)
+
+        if params.get('commande_id'):
+            domain.append(('commande_id', '=', int(params['commande_id'])))
+
+        date_from = params.get('date_from')
+        date_to = params.get('date_to')
+        if date_from:
+            domain.append(('date', '>=', date_from))
+        if date_to:
+            domain.append(('date', '<=', date_to))
+
+        search = params.get('search')
+        if search:
+            domain += ['|', ('name', 'ilike', search), ('livreur', 'ilike', search)]
+
+        offset = int(params.get('offset', 0))
+        limit = int(params.get('limit', 80)) if params.get('limit') else None
+        order = params.get('order', 'date desc')
+        Liv = env['pos.livraison.livraison']
+        livs = Liv.search(domain, offset=offset, limit=limit, order=order)
+        total = Liv.search_count(domain)
+        data = [{
+            'id': l.id,
+            'name': l.name,
+            'date': l.date and l.date.isoformat() or None,
+            'commande_id': l.commande_id.id,
+            'commande_name': l.commande_id.name,
+            'montant_livre': l.montant_livre,
+            'sacs_farine': l.sacs_farine,
+            'prix_sac': l.prix_sac,
+            'type_paiement': l.type_paiement,
+            'livreur': l.livreur,
+            'livreur_id': l.livreur_id.id if l.livreur_id else None,
+            'notes': l.notes,
+            'session_id': l.session_id.id,
+            'livraison_session_id': l.session_id.id,
+        } for l in livs]
+        return {'status': 'success', 'data': data, 'total': total, 'offset': offset, 'returned': len(data)}
+
     @http.route('/api/livraison/commande/<int:commande_id>', type='json', auth='user', methods=['GET'])
     def get_commande_detail(self, commande_id):
         c = request.env['pos.caisse.commande'].browse(commande_id)
         if not c.exists():
             return {'status': 'error', 'message': 'Commande non trouvée'}
+        # Limit delivered lines to current session if one is open, to avoid showing other users' deliveries.
+        sid = self._get_open_session_id_for_user()
+        livs = c.livraison_ids
+        if sid:
+            livs = livs.filtered(lambda l: l.session_id.id == sid)
         livraisons = [{
             'id': l.id,
             'name': l.name,
@@ -115,8 +264,11 @@ class PosLivraisonController(http.Controller):
             'prix_sac': l.prix_sac,
             'type_paiement': l.type_paiement,
             'livreur': l.livreur,
+            'livreur_id': l.livreur_id.id if l.livreur_id else None,
             'notes': l.notes,
-        } for l in c.livraison_ids]
+            'session_id': l.session_id.id,
+            'livraison_session_id': l.session_id.id,
+        } for l in livs]
         return {'status': 'success', 'data': {
             'id': c.id,
             'name': c.name,
@@ -146,11 +298,20 @@ class PosLivraisonController(http.Controller):
         params = http.request.jsonrequest or payload
         logging.info("=================== Payload received: %s", params)
         try:
+            # Enforce an open session for API usage to reflect client UX
+            sid = self._get_open_session_id_for_user()
+            if not sid:
+                return {'status': 'error', 'code': 'no_open_session', 'message': "Ouvrez d'abord une session de livraison"}
             commande_id = params.get('commande_id') or params.get('commande')
             montant_livre = params.get('montant_livre')
             type_paiement = params.get('type_paiement', 'cash')
             livreur = params.get('livreur')
+            livreur_id = params.get('livreur_id')
+            client_sid = params.get('livraison_session_id')
             notes = params.get('notes')
+            # If client provided a livraison_session_id, ensure it matches the current open session for safety
+            if client_sid and int(client_sid) != int(sid):
+                return {'status': 'error', 'code': 'session_mismatch', 'message': "Session liv. fournie ne correspond pas à la session ouverte"}
             if not commande_id:
                 return {'status': 'error', 'message': 'commande_id requis'}
             if montant_livre in (None, '', False):
@@ -166,13 +327,20 @@ class PosLivraisonController(http.Controller):
                 return {'status': 'error', 'message': 'Commande non trouvée'}
             if c.montant_livre + montant_livre > c.montant_total + 0.01:
                 return {'status': 'error', 'message': 'Montant dépasse le total'}
-            livraison = request.env['pos.livraison.livraison'].create({
+            vals = {
                 'commande_id': c.id,
                 'montant_livre': montant_livre,
                 'type_paiement': type_paiement,
                 'livreur': livreur,
                 'notes': notes,
-            })
+                'session_id': sid,
+            }
+            if livreur_id:
+                try:
+                    vals['livreur_id'] = int(livreur_id)
+                except Exception:
+                    pass
+            livraison = request.env['pos.livraison.livraison'].create(vals)
             if c.montant_restant <= 0 and c.etat_livraison != 'livree':
                 c.action_complete_livraison()
             elif c.etat_livraison == 'en_queue':
@@ -205,8 +373,15 @@ class PosLivraisonController(http.Controller):
         states = ['en_queue', 'en_cours', 'livree_partielle', 'livree']
         counts = {s: model.search_count([('etat_livraison', '=', s)]) for s in states}
         today = fields.Date.today()
-        livraisons_today = env['pos.livraison.livraison'].search([('date', '>=', today)])
-        sorties_today = env['pos.livraison.sortie.stock'].search([('date', '>=', today)])
+        # Session-aware: only show current user's open session activity if present
+        sid = self._get_open_session_id_for_user()
+        liv_domain = [('date', '>=', today)]
+        sortie_domain = [('date', '>=', today)]
+        if sid:
+            liv_domain.append(('session_id', '=', sid))
+            sortie_domain.append(('session_id', '=', sid))
+        livraisons_today = env['pos.livraison.livraison'].search(liv_domain)
+        sorties_today = env['pos.livraison.sortie.stock'].search(sortie_domain)
         return {'status': 'success', 'data': {
             'commandes': {**counts, 'total': sum(counts.values())},
             'livraisons_today': {
@@ -225,6 +400,10 @@ class PosLivraisonController(http.Controller):
         payload = http.request.jsonrequest or params
         logging.info("=========== Creating sortie stock with payload: %s", payload)
         try:
+            # Enforce an open session for API usage
+            sid = self._get_open_session_id_for_user()
+            if not sid:
+                return {'status': 'error', 'code': 'no_open_session', 'message': "Ouvrez d'abord une session de livraison"}
             motif = payload.get('motif')
             quantite_sacs = payload.get('quantite_sacs')
             type_sortie = payload.get('type', 'interne')
@@ -244,6 +423,7 @@ class PosLivraisonController(http.Controller):
                 'type': type_sortie,
                 'responsable': responsable,
                 'notes': notes,
+                'session_id': sid,
             })
             return {'status': 'success', 'sortie_id': sortie.id}
         except Exception as e:

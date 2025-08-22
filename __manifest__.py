@@ -19,9 +19,9 @@ Module POS Livraison Sumni v2
         "data/pos_livraison_data.xml",
         "security/ir.model.access.csv",
         "security/pos_livraison_security.xml",
-        "views/pos_caisse_commande_views.xml",
-        "views/pos_livraison_menu.xml",
-    "views/pos_livraison_views.xml"
+    "views/pos_caisse_commande_views.xml",
+    "views/pos_livraison_views.xml",
+    "views/pos_livraison_menu.xml"
     ],
     'assets': {
         'web.assets_backend': [],
