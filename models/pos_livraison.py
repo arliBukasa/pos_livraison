@@ -1,4 +1,6 @@
 from odoo import models, fields, api, exceptions
+from datetime import datetime, timedelta
+
 
 class PosCommande(models.Model):
     _inherit = 'pos.caisse.commande'
@@ -77,7 +79,6 @@ class PosCommande(models.Model):
                     rec.etat_livraison = 'livree_partielle'
                 elif abs(rec.montant_livre - rec.montant_total) <= 0.01:
                     rec.etat_livraison = 'livree'
-                    # Basculer automatiquement la commande en état livré
                     if getattr(rec, 'state', False) and rec.state != 'livre':
                         rec.state = 'livre'
                     if not rec.date_livraison_complete:
@@ -100,13 +101,10 @@ class PosCommande(models.Model):
         self.filtered(lambda r: r.etat_livraison == 'en_queue').write({'etat_livraison': 'en_cours'})
 
     def action_complete_livraison(self):
-        """Forcer la commande en livrée complète et aligner l'état de base."""
         for rec in self:
             if rec.montant_livre + 0.01 < rec.montant_total:
                 raise exceptions.UserError('Impossible: montant livré inférieur au total.')
-        # Marquer la livraison complète
         self.write({'etat_livraison': 'livree', 'date_livraison_complete': fields.Datetime.now()})
-        # Mettre la commande à l'état livré (sauf si déjà annulée)
         self.filtered(lambda r: getattr(r, 'state', False) and r.state not in ('livre', 'annule'))\
             .write({'state': 'livre'})
 
@@ -147,16 +145,13 @@ class PosCommande(models.Model):
         }
 
     def write(self, vals):
-        # Track old states for notification
         old_states = {rec.id: rec.etat_livraison for rec in self}
         res = super().write(vals)
         if 'etat_livraison' in vals:
             for rec in self:
                 old_state = old_states.get(rec.id)
                 if rec.etat_livraison != old_state:
-                    # Si la livraison devient complète, basculer la commande en 'livre'
                     if rec.etat_livraison == 'livree' and getattr(rec, 'state', False) and rec.state != 'livre':
-                        # Éviter de modifier si la commande est annulée
                         if rec.state != 'annule':
                             rec.write({'state': 'livre', 'date_livraison_complete': rec.date_livraison_complete or fields.Datetime.now()})
                     message = {
@@ -168,23 +163,15 @@ class PosCommande(models.Model):
         return res
 
     def _bus_notify(self, channel, payload, rec_id=None):
-        """Robust bus notifier that adapts to different Odoo bus APIs.
-        - Tries _sendmany with triples (target, notification_type, message).
-        - Falls back to _sendone(target, notification_type, message) or _sendone(target, message).
-        - Finally tries sendone(target, message).
-        Never raises to avoid breaking core flows.
-        """
         try:
             bus = self.env['bus.bus']
             target = (channel, rec_id) if rec_id is not None else channel
-            # Try _sendmany with triple signature
             if hasattr(bus, '_sendmany'):
                 try:
                     bus._sendmany([(target, 'simple', payload)])
                     return
                 except Exception:
                     pass
-            # Try _sendone triple then double
             if hasattr(bus, '_sendone'):
                 try:
                     bus._sendone(target, 'simple', payload)
@@ -195,7 +182,6 @@ class PosCommande(models.Model):
                         return
                     except Exception:
                         pass
-            # Fallback public sendone if present
             if hasattr(bus, 'sendone'):
                 try:
                     bus.sendone(target, payload)
@@ -203,28 +189,24 @@ class PosCommande(models.Model):
                 except Exception:
                     pass
         except Exception:
-            # Silently ignore bus failures
             return
 
     def action_quick_full_deliver(self):
-        """Create a livraison record with the remaining amount and close if fully delivered.
-        Returns a client action to reload the form."""
         self.ensure_one()
         if self.etat_livraison in ('livree', 'annulee'):
             raise exceptions.UserError('Commande déjà finalisée.')
         montant = round(self.montant_restant or 0.0, 2)
         if montant <= 0:
             raise exceptions.UserError('Rien à livrer.')
-        # Create the partial (or final) delivery silently
         self.env['pos.livraison.livraison'].create({
             'commande_id': self.id,
             'montant_livre': montant,
             'type_paiement': getattr(self, 'type_paiement', 'cash'),
         })
-        # After creation, if now fully delivered ensure state complete
         if abs(self.montant_restant) <= 0.01 and self.etat_livraison != 'livree':
             self.action_complete_livraison()
         return {'type': 'ir.actions.client', 'tag': 'reload'}
+
 
 class LivraisonLivraison(models.Model):
     _name = 'pos.livraison.livraison'
@@ -241,9 +223,7 @@ class LivraisonLivraison(models.Model):
     livreur = fields.Char('Livreur')
     notes = fields.Text('Notes de livraison')
     sacs_farine = fields.Float('Sacs de farine', compute='_compute_sacs_farine', store=True)
-    # Marqueur: livraison créée suite à une sortie de stock (sans commande)
     is_sortie_stock = fields.Boolean('Issue de sortie de stock', default=False, index=True, help="Créée automatiquement depuis une sortie de stock")
-    # Aliases explicitly requested by mobile client
     livraison_session_id = fields.Many2one('pos.livraison.session', string='Session livraison (alias)', related='session_id', store=True, index=True)
     livreur_id = fields.Many2one('res.users', string='Livreur (utilisateur)', index=True)
 
@@ -251,12 +231,9 @@ class LivraisonLivraison(models.Model):
     def create(self, vals):
         if vals.get('name', 'Nouveau') == 'Nouveau':
             vals['name'] = self.env['ir.sequence'].next_by_code('pos.livraison.livraison') or 'Nouveau'
-        # Ensure session if not provided
         if not vals.get('session_id'):
-            # Accept alias from client or ensure current open
             sid = vals.get('livraison_session_id') or self.env['pos.livraison.session']._ensure_open_for_user(self.env.uid)
             vals['session_id'] = sid
-        # Default livreur_id from session or current user if not provided
         if not vals.get('livreur_id'):
             try:
                 sess = self.env['pos.livraison.session'].browse(vals.get('session_id'))
@@ -270,7 +247,6 @@ class LivraisonLivraison(models.Model):
                 if commande.montant_livre + vals.get('montant_livre', 0) > commande.montant_total + 0.01:
                     raise exceptions.UserError('Le montant cumulé des livraisons dépasse le total de la commande.')
         rec = super().create(vals)
-        # Add bus notification after creation
         if rec.commande_id:
             message = {
                 'commande_id': rec.commande_id.id,
@@ -296,7 +272,6 @@ class LivraisonLivraison(models.Model):
             rec.sacs_farine = rec.prix_sac > 0 and rec.montant_livre / rec.prix_sac or 0
 
     def write(self, vals):
-        # Validate session state if changed
         if 'session_id' in vals and vals['session_id']:
             sess = self.env['pos.livraison.session'].browse(vals['session_id'])
             if sess and sess.state == 'ferme':
@@ -311,11 +286,10 @@ class LivraisonLivraison(models.Model):
     @api.onchange('commande_id')
     def _onchange_commande_id(self):
         if self.commande_id:
-            # Pré-remplir avec le restant à livrer
             self.montant_livre = self.commande_id.montant_restant
-            # Optionnel: pré-remplir type paiement si présent sur commande
             if hasattr(self.commande_id, 'type_paiement') and self.commande_id.type_paiement:
                 self.type_paiement = self.commande_id.type_paiement in ['cash','bp'] and self.commande_id.type_paiement or 'cash'
+
 
 class LivraisonSortieStock(models.Model):
     _name = 'pos.livraison.sortie.stock'
@@ -334,6 +308,7 @@ class LivraisonSortieStock(models.Model):
     ], default='interne', string='Type de sortie', required=True, index=True)
     responsable = fields.Char('Responsable')
     notes = fields.Text('Notes')
+    validated = fields.Boolean('Validée', default=False, index=True)
 
     @api.model
     def create(self, vals):
@@ -350,6 +325,12 @@ class LivraisonSortieStock(models.Model):
             poids_par_sac = float(self.env['ir.config_parameter'].sudo().get_param('pos_livraison.poids_sac', '50'))
             rec.quantite_kg = rec.quantite_sacs * poids_par_sac
             rec.montant = (rec.quantite_sacs*444) * 500
+
+    def action_valider(self):
+        for rec in self:
+            rec.validated = True
+        return True
+
 
 class LivraisonQueue(models.Model):
     _name = 'pos.livraison.queue'
@@ -394,10 +375,62 @@ class LivraisonSession(models.Model):
 
     @api.model
     def _ensure_open_for_user(self, uid):
-        """Return open session id for user, creating one if necessary."""
+        """Ensure an open session for user with noon-to-noon policy.
+        - A session spans from 12:00 to next day 12:00 in the user's timezone.
+        - Before noon: if a session exists (even closed) for the same user between yesterday 12:00 and today 12:00, reopen it; else create new.
+        - After noon: if a session exists since today's 12:00, reopen it; else create new.
+        """
+        uid = uid or self.env.uid
         sid = self._get_open_for_user(uid)
         if sid:
             return sid
+
+        # Use the timezone of the target user (falls back to context tz or UTC)
+        user = self.env['res.users'].browse(uid)
+        tzname = user.tz or self.env.context.get('tz')
+
+        # Helper: convert local dt (naive or aware) to UTC string in server format
+        def to_utc_str(dt_local):
+            try:
+                import pytz
+                tz = pytz.timezone(tzname) if tzname else pytz.utc
+                if dt_local.tzinfo is None:
+                    dt_local = tz.localize(dt_local)
+                dt_utc = dt_local.astimezone(pytz.utc)
+                return fields.Datetime.to_string(dt_utc)
+            except Exception:
+                return fields.Datetime.to_string(dt_local)
+
+        # Compute now in user's tz (aware) and a tz-aware noon for today
+        now_utc = fields.Datetime.now()
+        now_local = fields.Datetime.context_timestamp(self.with_context(tz=tzname), now_utc)
+        today = now_local.date()
+        try:
+            import pytz
+            tz = pytz.timezone(tzname) if tzname else pytz.utc
+            noon_local = tz.localize(datetime.combine(today, datetime.min.time()).replace(hour=12))
+        except Exception:
+            noon_local = datetime.combine(today, datetime.min.time()).replace(hour=12)
+
+        # Determine current noon window [start_local, end_local)
+        if now_local < noon_local:
+            start_local = noon_local - timedelta(days=1)
+            end_local = noon_local
+        else:
+            start_local = noon_local
+            end_local = noon_local + timedelta(days=1)
+
+        # Convert local window to UTC strings for searching
+        start_utc = to_utc_str(start_local)
+        end_utc = to_utc_str(end_local)
+
+        domain = [('user_id', '=', uid), ('date', '>=', start_utc), ('date', '<', end_utc)]
+        last = self.sudo().search(domain, order='date desc, id desc', limit=1)
+        if last:
+            if last.state != 'ouvert':
+                last.sudo().write({'state': 'ouvert', 'date_cloture': False})
+            return last.id
+
         sess = self.sudo().create({'user_id': uid, 'state': 'ouvert'})
         return sess.id
 
@@ -405,11 +438,13 @@ class LivraisonSession(models.Model):
                  'sortie_ids', 'sortie_ids.quantite_sacs', 'sortie_ids.quantite_kg')
     def _compute_stats(self):
         for s in self:
-            s.total_livraisons = len(s.livraison_ids)
-            s.montant_livre_total = sum(s.livraison_ids.mapped('montant_livre'))
-            s.sacs_livres_total = sum(s.livraison_ids.mapped('sacs_farine'))
-            s.sorties_sacs_total = sum(s.sortie_ids.mapped('quantite_sacs'))
-            s.sorties_kg_total = sum(s.sortie_ids.mapped('quantite_kg'))
+            livs = s.livraison_ids
+            sorties = s.sortie_ids
+            s.total_livraisons = len(livs)
+            s.montant_livre_total = sum(livs.mapped('montant_livre')) if livs else 0.0
+            s.sacs_livres_total = sum(livs.mapped('sacs_farine')) if livs else 0.0
+            s.sorties_sacs_total = sum(sorties.mapped('quantite_sacs')) if sorties else 0.0
+            s.sorties_kg_total = sum(sorties.mapped('quantite_kg')) if sorties else 0.0
 
     def action_open_session(self):
         self.ensure_one()
