@@ -232,7 +232,7 @@ class LivraisonLivraison(models.Model):
     _order = 'date desc'
 
     name = fields.Char('Référence', required=True, copy=False, readonly=True, default='Nouveau')
-    commande_id = fields.Many2one('pos.caisse.commande', string='Commande', required=True, ondelete='cascade', index=True)
+    commande_id = fields.Many2one('pos.caisse.commande', string='Commande', required=False, ondelete='cascade', index=True)
     session_id = fields.Many2one('pos.livraison.session', string='Session livraison', required=False, index=True)
     date = fields.Datetime('Date livraison', default=fields.Datetime.now, required=True, index=True)
     montant_livre = fields.Float('Montant livré', required=True)
@@ -241,6 +241,8 @@ class LivraisonLivraison(models.Model):
     livreur = fields.Char('Livreur')
     notes = fields.Text('Notes de livraison')
     sacs_farine = fields.Float('Sacs de farine', compute='_compute_sacs_farine', store=True)
+    # Marqueur: livraison créée suite à une sortie de stock (sans commande)
+    is_sortie_stock = fields.Boolean('Issue de sortie de stock', default=False, index=True, help="Créée automatiquement depuis une sortie de stock")
     # Aliases explicitly requested by mobile client
     livraison_session_id = fields.Many2one('pos.livraison.session', string='Session livraison (alias)', related='session_id', store=True, index=True)
     livreur_id = fields.Many2one('res.users', string='Livreur (utilisateur)', index=True)

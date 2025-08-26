@@ -231,17 +231,18 @@ class PosLivraisonController(http.Controller):
             'id': l.id,
             'name': l.name,
             'date': l.date and l.date.isoformat() or None,
-            'commande_id': l.commande_id.id,
-            'commande_name': l.commande_id.name,
+            'commande_id': l.commande_id.id if l.commande_id else None,
+            'commande_name': l.commande_id.name if l.commande_id else (getattr(l, 'is_sortie_stock', False) and 'Sortie de stock' or None),
             'montant_livre': l.montant_livre,
             'sacs_farine': l.sacs_farine,
             'prix_sac': l.prix_sac,
             'type_paiement': l.type_paiement,
-            'livreur': l.livreur,
+            'livreur': l.livreur or (l.livreur_id and l.livreur_id.name) or None,
             'livreur_id': l.livreur_id.id if l.livreur_id else None,
             'notes': l.notes,
             'session_id': l.session_id.id,
             'livraison_session_id': l.session_id.id,
+            'is_sortie_stock': getattr(l, 'is_sortie_stock', False),
         } for l in livs]
         return {'status': 'success', 'data': data, 'total': total, 'offset': offset, 'returned': len(data)}
 
@@ -263,11 +264,12 @@ class PosLivraisonController(http.Controller):
             'sacs_farine': l.sacs_farine,
             'prix_sac': l.prix_sac,
             'type_paiement': l.type_paiement,
-            'livreur': l.livreur,
+            'livreur': l.livreur or (l.livreur_id and l.livreur_id.name) or None,
             'livreur_id': l.livreur_id.id if l.livreur_id else None,
             'notes': l.notes,
             'session_id': l.session_id.id,
             'livraison_session_id': l.session_id.id,
+            'is_sortie_stock': getattr(l, 'is_sortie_stock', False),
         } for l in livs]
         return {'status': 'success', 'data': {
             'id': c.id,
@@ -398,6 +400,9 @@ class PosLivraisonController(http.Controller):
     @http.route('/api/livraison/sortie_stock', type='json', auth='user', methods=['POST'])
     def create_sortie_stock(self, **params):
         payload = http.request.jsonrequest or params
+        # Unwrap JSON-RPC envelope if present
+        if isinstance(payload, dict) and isinstance(payload.get('params'), dict):
+            payload = payload['params']
         logging.info("=========== Creating sortie stock with payload: %s", payload)
         try:
             # Enforce an open session for API usage
@@ -406,18 +411,34 @@ class PosLivraisonController(http.Controller):
                 return {'status': 'error', 'code': 'no_open_session', 'message': "Ouvrez d'abord une session de livraison"}
             motif = payload.get('motif')
             quantite_sacs = payload.get('quantite_sacs')
+            montant = payload.get('montant')
             type_sortie = payload.get('type', 'interne')
             responsable = payload.get('responsable')
             notes = payload.get('notes')
             if not motif:
                 return {'status': 'error', 'message': 'motif requis'}
-            try:
-                quantite_sacs = float(quantite_sacs)
-            except Exception:
-                return {'status': 'error', 'message': 'quantite_sacs invalide'}
-            if quantite_sacs <= 0:
-                return {'status': 'error', 'message': 'quantite_sacs doit être > 0'}
-            sortie = request.env['pos.livraison.sortie.stock'].create({
+            # Supporte nouveau parametre 'montant' (prioritaire). Convertit en sacs via prix_sac.
+            prix_sac = float(request.env['ir.config_parameter'].sudo().get_param('pos_livraison.prix_sac', '222000'))
+            if montant not in (None, '', False):
+                try:
+                    montant = float(montant)
+                except Exception:
+                    return {'status': 'error', 'message': 'montant invalide'}
+                if montant <= 0:
+                    return {'status': 'error', 'message': 'montant doit être > 0'}
+                quant_calc = (montant / prix_sac) if prix_sac > 0 else 0.0
+                quantite_sacs = quant_calc
+            else:
+                try:
+                    quantite_sacs = float(quantite_sacs)
+                except Exception:
+                    return {'status': 'error', 'message': 'quantite_sacs invalide'}
+                if quantite_sacs <= 0:
+                    return {'status': 'error', 'message': 'quantite_sacs doit être > 0'}
+                # Si pas de montant fourni, déduire pour la livraison
+                montant = quantite_sacs * prix_sac
+            env = request.env
+            sortie = env['pos.livraison.sortie.stock'].create({
                 'motif': motif,
                 'quantite_sacs': quantite_sacs,
                 'type': type_sortie,
@@ -425,7 +446,24 @@ class PosLivraisonController(http.Controller):
                 'notes': notes,
                 'session_id': sid,
             })
-            return {'status': 'success', 'sortie_id': sortie.id}
+            # Créer une livraison liée à la session, marquée comme "sortie de stock" pour les rapports
+            try:
+                sess = env['pos.livraison.session'].browse(sid)
+                livreur_name = sess.user_id.name if sess and sess.exists() else env.user.name
+                liv = env['pos.livraison.livraison'].create({
+                    'commande_id': False,
+                    'session_id': sid,
+                    'montant_livre': float(montant or 0.0),
+                    'type_paiement': 'cash',
+                    'livreur': livreur_name,
+                    'livreur_id': sess.user_id.id if sess and sess.exists() else env.user.id,
+                    'notes': (notes and (notes + ' | ') or '') + f"Sortie de stock: {motif} - {quantite_sacs:.2f} sacs - {montant:.0f} FC",
+                    'is_sortie_stock': True,
+                })
+                # Optional: attach a synthetic commande_name in API layer when commande is False
+            except Exception:
+                liv = None
+            return {'status': 'success', 'sortie_id': sortie.id, 'livraison_id': liv and liv.id}
         except Exception as e:
             request.env.cr.rollback()
             return {'status': 'error', 'message': str(e)}
