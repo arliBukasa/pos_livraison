@@ -328,6 +328,7 @@ class LivraisonSortieStock(models.Model):
     motif = fields.Char('Motif', required=True)
     quantite_sacs = fields.Float('Quantité (sacs)', required=True)
     quantite_kg = fields.Float('Quantité (kg)', compute='_compute_quantite_kg', store=True)
+    montant = fields.Float('Montant', compute='_compute_quantite_kg', store=True)
     type = fields.Selection([
         ('interne', 'Usage interne'), ('abime', 'Produit abîmé'), ('perte', 'Perte'), ('don', 'Don'), ('autres', 'Autres')
     ], default='interne', string='Type de sortie', required=True, index=True)
@@ -348,6 +349,7 @@ class LivraisonSortieStock(models.Model):
         for rec in self:
             poids_par_sac = float(self.env['ir.config_parameter'].sudo().get_param('pos_livraison.poids_sac', '50'))
             rec.quantite_kg = rec.quantite_sacs * poids_par_sac
+            rec.montant = (rec.quantite_sacs*444) * 500
 
 class LivraisonQueue(models.Model):
     _name = 'pos.livraison.queue'

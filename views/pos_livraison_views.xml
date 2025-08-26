@@ -206,6 +206,7 @@
                             <field name="motif"/>
                             <field name="quantite_sacs"/>
                             <field name="quantite_kg" readonly="1"/>
+                            <field name="montant" widget="monetary"/>
                         </group>
                     </group>
                     <group>
