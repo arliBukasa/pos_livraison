@@ -5,6 +5,23 @@ from odoo.http import request
 
 class PosLivraisonController(http.Controller):
     # ==== Helpers: session & payloads ====
+    def _extract_motif_from_notes(self, notes):
+        """Best-effort extraction of motif from notes string for stock-out entries.
+        Expected pattern example: "... | Sortie de stock: <MOTIF> - <qty> sacs - <montant> FC"
+        """
+        try:
+            if not notes:
+                return None
+            key = 'Sortie de stock:'
+            idx = notes.find(key)
+            if idx == -1:
+                return None
+            rest = notes[idx + len(key):].lstrip()
+            # motif ends before the next ' - '
+            motif = rest.split(' - ')[0].strip()
+            return motif or None
+        except Exception:
+            return None
     def _get_open_session_id_for_user(self, uid=None):
         uid = uid or request.env.user.id
         return request.env['pos.livraison.session']._get_open_for_user(uid)
@@ -237,6 +254,7 @@ class PosLivraisonController(http.Controller):
             'sacs_farine': l.sacs_farine,
             'prix_sac': l.prix_sac,
             'type_paiement': l.type_paiement,
+            'motif': (self._extract_motif_from_notes(l.notes) if getattr(l, 'is_sortie_stock', False) else None),
             'livreur': l.livreur or (l.livreur_id and l.livreur_id.name) or None,
             'livreur_id': l.livreur_id.id if l.livreur_id else None,
             'notes': l.notes,
@@ -264,6 +282,7 @@ class PosLivraisonController(http.Controller):
             'sacs_farine': l.sacs_farine,
             'prix_sac': l.prix_sac,
             'type_paiement': l.type_paiement,
+            'motif': (self._extract_motif_from_notes(l.notes) if getattr(l, 'is_sortie_stock', False) else None),
             'livreur': l.livreur or (l.livreur_id and l.livreur_id.name) or None,
             'livreur_id': l.livreur_id.id if l.livreur_id else None,
             'notes': l.notes,

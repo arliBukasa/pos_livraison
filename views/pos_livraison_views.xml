@@ -143,6 +143,8 @@
         <field name="arch" type="xml">
             <form>
                 <sheet>
+                <!-- ajouter badge sous forme de ruban comme celui de payé sur la facture 'sortie stock' si field.is_sortie_stock est true-->
+
                     <group>
                         <group>
                             <field name="commande_id"/>
