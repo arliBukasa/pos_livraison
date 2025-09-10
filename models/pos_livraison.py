@@ -24,6 +24,8 @@ class PosCommande(models.Model):
     notes_livraison = fields.Text('Notes livraison')
     client_nom = fields.Char('Nom du client', related='client_name', store=True)
     montant_total = fields.Float('Montant total', related='total', store=True)
+    # Montant cible pour considérer la commande comme entièrement livrée
+    montant_cible = fields.Float('Montant cible livraison', compute='_compute_montant_cible', store=True)
 
     livraison_ids = fields.One2many('pos.livraison.livraison', 'commande_id', string='Livraisons')
 
@@ -43,10 +45,19 @@ class PosCommande(models.Model):
         for rec in self:
             rec.montant_livre = sum(rec.livraison_ids.mapped('montant_livre'))
 
-    @api.depends('montant_total', 'montant_livre')
+    @api.depends('montant_total', 'is_vc')
+    def _compute_montant_cible(self):
+        for rec in self:
+            # Règle VC: +25% de commission inclus dans le montant cible
+            if getattr(rec, 'is_vc', False):
+                rec.montant_cible = (rec.montant_total or 0.0) * 1.25
+            else:
+                rec.montant_cible = rec.montant_total or 0.0
+
+    @api.depends('montant_cible', 'montant_livre')
     def _compute_montant_restant(self):
         for rec in self:
-            rec.montant_restant = rec.montant_total - rec.montant_livre
+            rec.montant_restant = (rec.montant_cible or 0.0) - (rec.montant_livre or 0.0)
 
     @api.depends('livraison_ids.sacs_farine')
     def _compute_sacs_farine(self):
@@ -65,19 +76,21 @@ class PosCommande(models.Model):
             rec.montant_livre_cash = sum(rec.livraison_ids.filtered(lambda l: l.type_paiement == 'cash').mapped('montant_livre'))
             rec.montant_livre_bp = sum(rec.livraison_ids.filtered(lambda l: l.type_paiement == 'bp').mapped('montant_livre'))
 
-    @api.depends('montant_livre', 'montant_total')
+    @api.depends('montant_livre', 'montant_cible')
     def _compute_progression(self):
         for rec in self:
-            rec.progression = rec.montant_total and min(100.0, (rec.montant_livre / rec.montant_total) * 100.0) or 0.0
+            target = rec.montant_cible or 0.0
+            rec.progression = target and min(100.0, (rec.montant_livre / target) * 100.0) or 0.0
 
     def _update_state_from_progress(self):
         for rec in self:
             if rec.etat_livraison not in ('annulee',):
                 if rec.montant_livre == 0:
                     continue
-                if 0 < rec.montant_livre < rec.montant_total - 0.01:
+                target = rec.montant_cible or 0.0
+                if 0 < rec.montant_livre < target - 0.01:
                     rec.etat_livraison = 'livree_partielle'
-                elif abs(rec.montant_livre - rec.montant_total) <= 0.01:
+                elif abs(rec.montant_livre - target) <= 0.01:
                     rec.etat_livraison = 'livree'
                     if getattr(rec, 'state', False) and rec.state != 'livre':
                         rec.state = 'livre'
@@ -102,8 +115,10 @@ class PosCommande(models.Model):
 
     def action_complete_livraison(self):
         for rec in self:
-            if rec.montant_livre + 0.01 < rec.montant_total:
-                raise exceptions.UserError('Impossible: montant livré inférieur au total.')
+            # Pour VC, le total à atteindre est le montant_cible (total * 1.25)
+            target = getattr(rec, 'montant_cible', None) or rec.montant_total
+            if rec.montant_livre + 0.01 < (target or 0.0):
+                raise exceptions.UserError('Impossible: montant livré inférieur au total cible.')
         self.write({'etat_livraison': 'livree', 'date_livraison_complete': fields.Datetime.now()})
         self.filtered(lambda r: getattr(r, 'state', False) and r.state not in ('livre', 'annule'))\
             .write({'state': 'livre'})
@@ -244,8 +259,14 @@ class LivraisonLivraison(models.Model):
         if vals.get('commande_id'):
             commande = self.env['pos.caisse.commande'].browse(vals['commande_id'])
             if commande and commande.exists():
-                if commande.montant_livre + vals.get('montant_livre', 0) > commande.montant_total + 0.01:
-                    raise exceptions.UserError('Le montant cumulé des livraisons dépasse le total de la commande.')
+                # Valider contre le montant cible (VC => +25%)
+                try:
+                    add = float(vals.get('montant_livre') or 0.0)
+                except Exception:
+                    add = 0.0
+                target = getattr(commande, 'montant_cible', None) or commande.montant_total or 0.0
+                if (commande.montant_livre or 0.0) + add > target + 0.01:
+                    raise exceptions.UserError('Le montant cumulé des livraisons dépasse le total cible de la commande.')
         rec = super().create(vals)
         if rec.commande_id:
             message = {

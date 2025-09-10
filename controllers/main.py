@@ -180,7 +180,9 @@ class PosLivraisonController(http.Controller):
             'name': c.name,
             'client_card': getattr(c, 'client_card', False),
             'client_nom': c.client_nom,
+            'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
+            'montant_cible': getattr(c, 'montant_cible', c.montant_total),
             'montant_livre': c.montant_livre,
             'montant_restant': c.montant_restant,
             'etat_livraison': c.etat_livraison,
@@ -295,7 +297,9 @@ class PosLivraisonController(http.Controller):
             'name': c.name,
             'client_card': getattr(c, 'client_card', False),
             'client_nom': c.client_nom,
+            'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
+            'montant_cible': getattr(c, 'montant_cible', c.montant_total),
             'montant_livre': c.montant_livre,
             'montant_restant': c.montant_restant,
             'etat_livraison': c.etat_livraison,
@@ -346,8 +350,10 @@ class PosLivraisonController(http.Controller):
             c = request.env['pos.caisse.commande'].browse(int(commande_id))
             if not c.exists():
                 return {'status': 'error', 'message': 'Commande non trouvée'}
-            if c.montant_livre + montant_livre > c.montant_total + 0.01:
-                return {'status': 'error', 'message': 'Montant dépasse le total'}
+            # Respecte le montant cible (VC => +25%)
+            cible = getattr(c, 'montant_cible', c.montant_total)
+            if c.montant_livre + montant_livre > (cible or 0.0) + 0.01:
+                return {'status': 'error', 'message': 'Montant dépasse le total cible'}
             vals = {
                 'commande_id': c.id,
                 'montant_livre': montant_livre,
