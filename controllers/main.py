@@ -211,8 +211,11 @@ class PosLivraisonController(http.Controller):
         if session_mode == 'current':
             sid = self._get_open_session_id_for_user()
             if not sid:
-                return {'status': 'error', 'code': 'no_open_session', 'message': "Aucune session de livraison ouverte"}
-            domain.append(('session_id', '=', sid))
+                # For reports, allow access to all sessions instead of failing
+                logging.info("No open session, switching to 'none' mode for report access")
+                session_mode = 'none'
+            else:
+                domain.append(('session_id', '=', sid))
         elif session_mode == 'session_id':
             sid = int(params.get('session_id') or 0)
             if not sid:
