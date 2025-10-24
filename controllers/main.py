@@ -171,7 +171,7 @@ class PosLivraisonController(http.Controller):
             domain.append(('priority_livraison', '=', priority))
         search = params.get('search')
         if search:
-            domain += ['|', ('name', 'ilike', search), ('client_nom', 'ilike', search)]
+            domain += ['|', ('name', 'ilike', search), ('client_name', 'ilike', search)]
         offset = int(params.get('offset', 0))
         limit = int(params.get('limit', 80)) if params.get('limit') else None
         commandes = request.env['pos.caisse.commande'].search(domain, offset=offset, limit=limit, order='priority_livraison desc, create_date asc')
@@ -179,7 +179,7 @@ class PosLivraisonController(http.Controller):
             'id': c.id,
             'name': c.name,
             'client_card': getattr(c, 'client_card', False),
-            'client_nom': c.client_nom,
+            'client_nom': c.client_name or '',
             'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
             'montant_cible': getattr(c, 'montant_cible', c.montant_total),
@@ -299,7 +299,7 @@ class PosLivraisonController(http.Controller):
             'id': c.id,
             'name': c.name,
             'client_card': getattr(c, 'client_card', False),
-            'client_nom': c.client_nom,
+            'client_nom': c.client_name or '',
             'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
             'montant_cible': getattr(c, 'montant_cible', c.montant_total),
@@ -389,7 +389,7 @@ class PosLivraisonController(http.Controller):
             'position': i + 1,
             'id': c.id,
             'name': c.name,
-            'client_nom': c.client_nom,
+            'client_nom': c.client_name or '',
             'montant_total': c.montant_total,
             'priority_livraison': c.priority_livraison,
             'progression': c.progression,
