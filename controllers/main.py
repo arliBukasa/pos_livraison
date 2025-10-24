@@ -183,12 +183,12 @@ class PosLivraisonController(http.Controller):
             'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
             'montant_cible': getattr(c, 'montant_cible', c.montant_total),
-            'montant_livre': c.montant_livre,
-            'montant_restant': c.montant_restant,
-            'etat_livraison': c.etat_livraison,
-            'priority_livraison': c.priority_livraison,
-            'progression': c.progression,
-            'date_livraison_prevue': c.date_livraison_prevue and c.date_livraison_prevue.isoformat() or None,
+            'montant_livre': getattr(c, 'montant_livre', 0.0),
+            'montant_restant': getattr(c, 'montant_restant', c.montant_total),
+            'etat_livraison': getattr(c, 'etat_livraison', 'en_queue') or 'en_queue',
+            'priority_livraison': getattr(c, 'priority_livraison', '0') or '0',
+            'progression': getattr(c, 'progression', 0.0),
+            'date_livraison_prevue': getattr(c, 'date_livraison_prevue', None) and c.date_livraison_prevue.isoformat() or None,
         } for c in commandes]
         total_count = request.env['pos.caisse.commande'].search_count(domain)
         return {'status': 'success', 'data': data, 'total': total_count, 'offset': offset, 'returned': len(data)}
@@ -303,19 +303,19 @@ class PosLivraisonController(http.Controller):
             'is_vc': getattr(c, 'is_vc', False),
             'montant_total': c.montant_total,
             'montant_cible': getattr(c, 'montant_cible', c.montant_total),
-            'montant_livre': c.montant_livre,
-            'montant_restant': c.montant_restant,
-            'etat_livraison': c.etat_livraison,
-            'priority_livraison': c.priority_livraison,
-            'notes_livraison': c.notes_livraison,
-            'mode_livraison': c.mode_livraison,
-            'date_livraison_prevue': c.date_livraison_prevue and c.date_livraison_prevue.isoformat() or None,
-            'date_livraison_complete': c.date_livraison_complete and c.date_livraison_complete.isoformat() or None,
-            'sacs_farine_total': c.sacs_farine_total,
-            'poids_farine_kg': c.poids_farine_kg,
-            'progression': c.progression,
-            'montant_livre_cash': c.montant_livre_cash,
-            'montant_livre_bp': c.montant_livre_bp,
+            'montant_livre': getattr(c, 'montant_livre', 0.0),
+            'montant_restant': getattr(c, 'montant_restant', c.montant_total),
+            'etat_livraison': getattr(c, 'etat_livraison', 'en_queue') or 'en_queue',
+            'priority_livraison': getattr(c, 'priority_livraison', '0') or '0',
+            'notes_livraison': getattr(c, 'notes_livraison', ''),
+            'mode_livraison': getattr(c, 'mode_livraison', 'standard'),
+            'date_livraison_prevue': getattr(c, 'date_livraison_prevue', None) and c.date_livraison_prevue.isoformat() or None,
+            'date_livraison_complete': getattr(c, 'date_livraison_complete', None) and c.date_livraison_complete.isoformat() or None,
+            'sacs_farine_total': getattr(c, 'sacs_farine_total', 0),
+            'poids_farine_kg': getattr(c, 'poids_farine_kg', 0.0),
+            'progression': getattr(c, 'progression', 0.0),
+            'montant_livre_cash': getattr(c, 'montant_livre_cash', 0.0),
+            'montant_livre_bp': getattr(c, 'montant_livre_bp', 0.0),
             'livraisons': livraisons,
         }}
 
@@ -355,7 +355,8 @@ class PosLivraisonController(http.Controller):
                 return {'status': 'error', 'message': 'Commande non trouvée'}
             # Respecte le montant cible (VC => +25%)
             cible = getattr(c, 'montant_cible', c.montant_total)
-            if c.montant_livre + montant_livre > (cible or 0.0) + 0.01:
+            montant_livre_actuel = getattr(c, 'montant_livre', 0.0)
+            if montant_livre_actuel + montant_livre > (cible or 0.0) + 0.01:
                 return {'status': 'error', 'message': 'Montant dépasse le total cible'}
             vals = {
                 'commande_id': c.id,
@@ -371,9 +372,11 @@ class PosLivraisonController(http.Controller):
                 except Exception:
                     pass
             livraison = request.env['pos.livraison.livraison'].create(vals)
-            if c.montant_restant <= 0 and c.etat_livraison != 'livree':
+            montant_restant_actuel = getattr(c, 'montant_restant', c.montant_total)
+            etat_actuel = getattr(c, 'etat_livraison', 'en_queue')
+            if montant_restant_actuel <= 0 and etat_actuel != 'livree':
                 c.action_complete_livraison()
-            elif c.etat_livraison == 'en_queue':
+            elif etat_actuel == 'en_queue':
                 c.action_start_livraison()
             return {'status': 'success', 'livraison_id': livraison.id}
         except Exception as e:
@@ -391,8 +394,8 @@ class PosLivraisonController(http.Controller):
             'name': c.name,
             'client_nom': c.client_name or '',
             'montant_total': c.montant_total,
-            'priority_livraison': c.priority_livraison,
-            'progression': c.progression,
+            'priority_livraison': getattr(c, 'priority_livraison', '0') or '0',
+            'progression': getattr(c, 'progression', 0.0),
         } for i, c in enumerate(commandes)]
         return {'status': 'success', 'data': data}
 
