@@ -162,10 +162,14 @@ class PosLivraisonController(http.Controller):
     @http.route('/api/livraison/commandes', type='json', auth='user', methods=['POST'])
     def get_commandes(self, **params):
         logging.info("=========== les paramettres dans /api/livraison/commandes: %s", params)
-        domain = []
+        # Filtre de base : seulement les commandes avec un état de livraison défini
+        domain = [('etat_livraison', '!=', False)]
         etat = params.get('etat') or params.get('etat_livraison')
         if etat:
             domain.append(('etat_livraison', '=', etat))
+        else:
+            # Par défaut, exclure les commandes livrées et annulées
+            domain.append(('etat_livraison', 'not in', ['livree', 'annulee']))
         priority = params.get('priority') or params.get('priority_livraison')
         if priority:
             domain.append(('priority_livraison', '=', priority))
@@ -386,6 +390,7 @@ class PosLivraisonController(http.Controller):
     @http.route('/api/livraison/queue', type='json', auth='user', methods=['GET'])
     def get_queue(self):
         commandes = request.env['pos.caisse.commande'].search([
+            ('etat_livraison', '!=', False),
             ('etat_livraison', '=', 'en_queue')
         ], order='priority_livraison desc, create_date asc')
         data = [{
